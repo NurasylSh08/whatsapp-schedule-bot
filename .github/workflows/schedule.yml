@@ -1,0 +1,31 @@
+name: WhatsApp Schedule Bot (II-261/2)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Режим запуска: auto | today | test | get_chats'
+        required: false
+        default: 'test'
+  schedule:
+    - cron: '30 2 * * 1-5'
+    - cron: '45 2,3,4,5,6,7,8,9,10,11 * * 1-5'
+
+jobs:
+  send-schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run WhatsApp Schedule Bot
+        env:
+          GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
+          GREEN_ID_INSTANCE: ${{ secrets.GREEN_ID_INSTANCE }}
+          GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
+          GREEN_CHAT_ID: ${{ secrets.GREEN_CHAT_ID }}
+          BOT_MODE: ${{ github.event.inputs.mode || 'auto' }}
+        run: python green_api_schedule_bot.py
