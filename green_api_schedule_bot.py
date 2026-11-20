@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Автономный облачный WhatsApp-бот расписания группы ИИ-261/2 (КазУТБ)
+для бесплатной работы 24/7 через GitHub Actions + GREEN-API (без включённого ПК и без VPS-сервера).
+"""
+
 import json
 import os
 import sys
@@ -12,6 +17,7 @@ ID_INSTANCE = (os.getenv("GREEN_ID_INSTANCE") or "").strip()
 API_TOKEN = (os.getenv("GREEN_API_TOKEN") or "").strip()
 CHAT_ID = (os.getenv("GREEN_CHAT_ID") or "").strip()
 BOT_MODE = (os.getenv("BOT_MODE") or "auto").strip().lower()
+
 TIMEZONE = ZoneInfo("Asia/Almaty")
 SKIP_CONSECUTIVE_SAME_ROOM = False
 
@@ -76,10 +82,20 @@ def send_whatsapp_message(text: str) -> None:
     url = f"{API_URL}/waInstance{ID_INSTANCE}/sendMessage/{API_TOKEN}"
     payload = json.dumps({"chatId": CHAT_ID, "message": text}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        print(f"Сообщение отправлено: {resp.read().decode('utf-8')}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            print(f"Сообщение отправлено в {CHAT_ID}: {resp.read().decode('utf-8')}")
+    except urllib.error.HTTPError as err:
+        print(f"HTTP ошибка GREEN-API ({err.code}): {err.read().decode('utf-8', errors='replace')}")
+        sys.exit(1)
+    except Exception as exc:
+        print(f"Ошибка соединения с GREEN-API: {exc}")
+        sys.exit(1)
 
 def print_available_chats() -> None:
+    if not ID_INSTANCE or not API_TOKEN:
+        print("Задайте GREEN_ID_INSTANCE и GREEN_API_TOKEN в Secrets репозитория.")
+        sys.exit(1)
     url = f"{API_URL}/waInstance{ID_INSTANCE}/getContacts/{API_TOKEN}"
     req = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(req, timeout=20) as resp:
@@ -87,11 +103,14 @@ def print_available_chats() -> None:
         for g in [c for c in contacts if str(c.get("id", "")).endswith("@g.us")]:
             print(f"Название: {g.get('name', 'Без названия')} | GREEN_CHAT_ID: {g.get('id')}")
 
-def format_day_schedule(day_num: int) -> str:
+def format_day_schedule(day_num: int, is_tomorrow: bool = False) -> str:
     day_data = SCHEDULE.get(day_num)
     if not day_data or not day_data["classes"]:
+        if is_tomorrow:
+            return "📅 Завтра по расписанию группы *ИИ-261/2* занятий нет — выходной! 🎉"
         return "📅 На сегодня занятий по расписанию группы *ИИ-261/2* нет — выходной! 🎉"
-    lines = ["🌅 *Доброе утро! Расписание группы ИИ-261/2 на сегодня:*", f"🗓 *{day_data['day_name']}*", ""]
+    header = "🌙 *Добрый вечер! Расписание группы ИИ-261/2 на завтра:*" if is_tomorrow else "🌅 *Доброе утро! Расписание группы ИИ-261/2 на сегодня:*"
+    lines = [header, f"🗓 *{day_data['day_name']}*", ""]
     for idx, cls in enumerate(day_data["classes"], start=1):
         lines.append(f"*{idx}. {cls['start']}–{cls['end']}* | 🚪 Ауд. *{cls['room']}*\n   📚 {cls['subject']} _({cls['type']})_\n   👨‍🏫 {cls['teacher']}")
     return "\n".join(lines)
@@ -117,15 +136,28 @@ def main() -> None:
         send_whatsapp_message(format_class_reminder(SCHEDULE[1]["classes"][0], 15))
         return
     if BOT_MODE == "today":
-        send_whatsapp_message(format_day_schedule(day_num))
+        send_whatsapp_message(format_day_schedule(day_num, is_tomorrow=False))
+        return
+    if BOT_MODE == "tomorrow":
+        tomorrow_num = (day_num % 7) + 1
+        send_whatsapp_message(format_day_schedule(tomorrow_num, is_tomorrow=True))
+        return
+    if 19 * 60 + 45 <= now_minutes <= 20 * 60 + 25:
+        tomorrow_num = (day_num % 7) + 1
+        if tomorrow_num in SCHEDULE:
+            send_whatsapp_message(format_day_schedule(tomorrow_num, is_tomorrow=True))
         return
     day_data = SCHEDULE.get(day_num)
     if not day_data:
         return
     if 7 * 60 + 15 <= now_minutes <= 7 * 60 + 40:
-        send_whatsapp_message(format_day_schedule(day_num))
+        send_whatsapp_message(format_day_schedule(day_num, is_tomorrow=False))
         return
-    for lesson in day_data["classes"]:
+    classes = day_data["classes"]
+    for i, lesson in enumerate(classes):
+        prev_lesson = classes[i - 1] if i > 0 else None
+        if SKIP_CONSECUTIVE_SAME_ROOM and prev_lesson and prev_lesson["subject"] == lesson["subject"] and prev_lesson["room"] == lesson["room"] and prev_lesson["teacher"] == lesson["teacher"]:
+            continue
         start_h, start_m = map(int, lesson["start"].split(":"))
         diff_minutes = (start_h * 60 + start_m) - now_minutes
         if 1 <= diff_minutes <= 28:
