@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Режим запуска: auto | today | test | get_chats'
+        description: 'Режим запуска: auto | today | tomorrow | test | get_chats'
         required: false
         default: 'test'
   schedule:
     - cron: '30 2 * * 1-5'
     - cron: '45 2,3,4,5,6,7,8,9,10,11 * * 1-5'
+    - cron: '0 15 * * 0-4'
 
 jobs:
   send-schedule:
